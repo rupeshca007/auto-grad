@@ -1,70 +1,102 @@
-// src/app/page.tsx
-'use client';
+import { Dashboard } from './components/Dashboard';
+import { GradingForm } from './components/GradingForm';
+import { GuideManager } from './components/GuideManager';
+import { getRubricsAction } from './actions/rubric';
+import { getAnalyticsData } from './actions/analytics';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
+import { getGuidesAction } from './actions/evaluationGuide';
 
-import { useState, useTransition } from 'react';
-import { gradeSubmissionAction } from './actions/grade';
+export const dynamic = 'force-dynamic';
 
-export default function GraderDashboard() {
-  const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{score: number, feedback: string} | null>(null);
+export default async function GraderDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ class?: string }>;
+}) {
+  const params = await searchParams;
+  const selectedClass = params.class || '';
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const student = formData.get('student') as string;
-    const essay = formData.get('essay') as string;
-    const rubric = formData.get('rubric') as string;
-
-    startTransition(async () => {
-      const response = await gradeSubmissionAction(student, essay, rubric);
-      if (response.success && response.score !== undefined) {
-        setResult({ score: response.score, feedback: response.feedback! });
-      } else {
-        alert("There was an error grading the assignment.");
-      }
-    });
-  };
+  const [rubrics, analytics, guides] = await Promise.all([
+    getRubricsAction(),
+    getAnalyticsData(selectedClass || undefined),
+    getGuidesAction(),
+  ]);
 
   return (
-    <main className="p-10 max-w-3xl mx-auto space-y-8 font-sans">
-      <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dumroo.ai | Cognitive Auto-Grader</h1>
-      <p className="text-gray-600 dark:text-gray-300">Automated rubric-based assessment powered by Gemini.</p>
-      
-      <form onSubmit={handleSubmit} className="space-y-4 bg-gray-50 dark:bg-gray-900 p-6 rounded-lg border border-gray-200 dark:border-gray-800">
-        <input 
-          name="student" 
-          placeholder="Student Name" 
-          required 
-          className="w-full border border-gray-300 dark:border-gray-700 p-3 rounded text-black dark:text-white dark:bg-gray-800" 
-        />
-        <textarea 
-          name="rubric" 
-          placeholder="Grading Rubric (e.g., Deduct 5 pts for spelling errors)" 
-          required 
-          className="w-full border border-gray-300 dark:border-gray-700 p-3 rounded text-black dark:text-white dark:bg-gray-800 h-24" 
-        />
-        <textarea 
-          name="essay" 
-          placeholder="Paste student essay here..." 
-          required 
-          className="w-full border border-gray-300 dark:border-gray-700 p-3 rounded text-black dark:text-white dark:bg-gray-800 h-48" 
-        />
-        
-        <button 
-          type="submit" 
-          disabled={isPending} 
-          className="w-full bg-blue-600 hover:bg-blue-700 transition-colors text-white font-semibold px-4 py-3 rounded disabled:bg-blue-400"
-        >
-          {isPending ? '🤖 Gemini is Analyzing...' : 'Grade Assignment'}
-        </button>
-      </form>
+    <main className="p-6 md:p-10 max-w-5xl mx-auto space-y-8 font-sans">
+      <div className="flex justify-between items-end mb-2">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white">Dumroo.ai | OmniLearn</h1>
+          <p className="text-base md:text-lg text-gray-600 dark:text-gray-300 mt-2">Cognitive Auto-Grader & Analytics Ecosystem</p>
+        </div>
+      </div>
 
-      {result && (
-        <div className="bg-green-50 dark:bg-green-900/20 p-6 border border-green-300 dark:border-green-800 rounded-lg shadow-sm">
-          <h2 className="text-2xl font-bold text-green-800 dark:text-green-400">Score: {result.score}/100</h2>
-          <p className="mt-3 text-green-900 dark:text-green-300 leading-relaxed">{result.feedback}</p>
+      {/* Class Filter Tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 mr-1">View Class:</span>
+        <a
+          href="/"
+          className={`px-4 py-1.5 rounded-full text-sm font-semibold border transition-colors ${
+            !selectedClass
+              ? 'bg-indigo-600 text-white border-indigo-600'
+              : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-indigo-400'
+          }`}
+        >
+          All Classes
+        </a>
+        {analytics.allClasses.map((cls: string) => (
+          <a
+            key={cls}
+            href={`/?class=${encodeURIComponent(cls)}`}
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold border transition-colors ${
+              selectedClass === cls
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-indigo-400'
+            }`}
+          >
+            Class {cls}
+          </a>
+        ))}
+        {analytics.allClasses.length === 0 && (
+          <span className="text-xs text-gray-400 italic">No classes yet — grade an assignment to create one</span>
+        )}
+      </div>
+
+      {selectedClass && (
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg px-4 py-2 text-sm text-indigo-700 dark:text-indigo-300 font-medium">
+          📚 Showing data for <strong>Class {selectedClass}</strong> only —{' '}
+          <a href="/" className="underline hover:no-underline">View all classes</a>
         </div>
       )}
+
+      {/* Class Analytics Dashboard */}
+      <section>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+          📊 {selectedClass ? `Class ${selectedClass} Analytics` : 'Class Analytics'}
+        </h2>
+        <AnalyticsDashboard
+          students={analytics.students}
+          weakTopicsRanked={analytics.weakTopicsRanked}
+          classAverage={analytics.classAverage}
+          atRiskCount={analytics.atRiskCount}
+          totalStudents={analytics.totalStudents}
+        />
+      </section>
+
+      {/* Legacy Table Dashboard */}
+      <Dashboard selectedClass={selectedClass || undefined} />
+
+      {/* RAG Knowledge Base */}
+      <section>
+        <GuideManager initialGuides={guides} />
+      </section>
+
+      {/* Grading Form */}
+      <GradingForm
+        initialRubrics={rubrics}
+        initialGuides={guides}
+        allClasses={analytics.allClasses}
+      />
     </main>
   );
 }
