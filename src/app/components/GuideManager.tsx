@@ -16,6 +16,7 @@ export function GuideManager({ initialGuides }: { initialGuides: Guide[] }) {
   const [guides, setGuides] = useState<Guide[]>(initialGuides);
   const [isOpen, setIsOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [expandedGuideId, setExpandedGuideId] = useState<string | null>(null);
   const [isSaving, startSaving] = useTransition();
   const [isDeleting, startDeleting] = useTransition();
 
@@ -103,23 +104,42 @@ export function GuideManager({ initialGuides }: { initialGuides: Guide[] }) {
           {guides.length > 0 && (
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Saved Guides</h3>
-              {guides.map(guide => (
-                <div key={guide._id} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <span className="text-xl mt-0.5">📋</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 dark:text-white text-sm">{guide.name}</p>
-                    <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">{guide.subject}</p>
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{guide.content.slice(0, 100)}...</p>
+              {guides.map(guide => {
+                const isExpanded = expandedGuideId === guide._id;
+                return (
+                  <div key={guide._id} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <span className="text-xl mt-0.5">📋</span>
+                    <div 
+                      className="flex-1 min-w-0 cursor-pointer group" 
+                      onClick={() => setExpandedGuideId(isExpanded ? null : guide._id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-gray-900 dark:text-white text-sm group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">{guide.name}</p>
+                          <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">{guide.subject}</p>
+                        </div>
+                        <span className="text-xs text-gray-400">{isExpanded ? '▲ Hide' : '▼ View'}</span>
+                      </div>
+                      
+                      {isExpanded ? (
+                        <pre className="text-xs text-gray-700 dark:text-gray-300 mt-2 p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded whitespace-pre-wrap font-mono overflow-x-auto">
+                          {guide.content}
+                        </pre>
+                      ) : (
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">{guide.content.slice(0, 100)}...</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(guide._id); }}
+                      disabled={isDeleting}
+                      className="text-red-400 hover:text-red-600 text-sm font-medium flex-shrink-0 p-1"
+                      title="Delete Guide"
+                    >
+                      🗑
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleDelete(guide._id)}
-                    disabled={isDeleting}
-                    className="text-red-400 hover:text-red-600 text-sm font-medium flex-shrink-0"
-                  >
-                    🗑
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
