@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine
 } from 'recharts';
 import { useState } from 'react';
+import { LessonPlanModal } from './LessonPlanModal';
 
 interface Student {
   name: string;
@@ -41,6 +42,7 @@ const getUrgencyColor = (count: number, totalStudents: number) => {
 
 export function AnalyticsDashboard({ students, weakTopicsRanked, classAverage, atRiskCount, totalStudents }: AnalyticsProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'leaderboard' | 'topics'>('overview');
+  const [activeLessonTopic, setActiveLessonTopic] = useState<{ topic: string; pct: number } | null>(null);
 
   const chartData = students.map(s => ({
     name: s.name.split(' ')[0],
@@ -222,6 +224,20 @@ export function AnalyticsDashboard({ students, weakTopicsRanked, classAverage, a
                             <p className="text-xs text-gray-500">{item.count} student{item.count !== 1 ? 's' : ''} struggled ({pct}% of class)</p>
                           </div>
                           <span className={`text-2xl font-black ${urgency.text}`}>{pct}%</span>
+                          {/* Lesson Plan Button — shown for Red and Orange zones */}
+                          {pct >= 30 && (
+                            <button
+                              onClick={() => setActiveLessonTopic({ topic: item.topic, pct })}
+                              className={`shrink-0 flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md ${
+                                pct >= 60
+                                  ? 'bg-red-600 hover:bg-red-700 text-white'
+                                  : 'bg-orange-500 hover:bg-orange-600 text-white'
+                              }`}
+                            >
+                              <span>✨</span>
+                              <span className="hidden sm:inline">Plan Lesson</span>
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -232,6 +248,16 @@ export function AnalyticsDashboard({ students, weakTopicsRanked, classAverage, a
           )}
         </div>
       </div>
+
+      {/* Lesson Plan Modal */}
+      {activeLessonTopic && (
+        <LessonPlanModal
+          topic={activeLessonTopic.topic}
+          className={students[0] ? 'K-12' : 'K-12'}
+          failurePercent={activeLessonTopic.pct}
+          onClose={() => setActiveLessonTopic(null)}
+        />
+      )}
     </div>
   );
 }
