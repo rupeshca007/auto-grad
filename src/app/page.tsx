@@ -1,6 +1,7 @@
 import { Dashboard } from './components/Dashboard';
 import { GradingForm } from './components/GradingForm';
 import { GuideManager } from './components/GuideManager';
+import { WorksheetGenerator } from './components/WorksheetGenerator';
 import { getRubricsAction } from './actions/rubric';
 import { getAnalyticsData } from './actions/analytics';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
@@ -89,6 +90,24 @@ export default async function GraderDashboard({
       {/* RAG Knowledge Base */}
       <section>
         <GuideManager initialGuides={guides} />
+      </section>
+
+      {/* Phase 9: AutoWorksheet Engine */}
+      <section>
+        <div className="flex items-center gap-3 mb-4">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">📋 Phase 9: AutoWorksheet Engine</h2>
+          <span className="text-xs bg-indigo-600 text-white font-bold px-2 py-0.5 rounded-full">NEW</span>
+        </div>
+        <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+          Select a student to automatically generate a personalised, print-ready remediation worksheet targeting their diagnosed weak topics.
+        </p>
+        <WorksheetGenerator
+          students={analytics.students.map((s: any) => ({
+            name: s.studentName,
+            className: s.className || selectedClass || 'General',
+            averageScore: s.averageScore,
+          }))}
+        />
       </section>
 
       {/* Grading Form */}
