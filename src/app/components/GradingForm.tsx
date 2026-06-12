@@ -183,7 +183,6 @@ export function GradingForm({ initialRubrics = [], initialGuides = [], allClasse
           <textarea 
             name="rubric" 
             placeholder="Type your grading rubric here, or select a template above..." 
-            required 
             value={rubricText}
             onChange={(e) => setRubricText(e.target.value)}
             className="w-full border border-gray-300 dark:border-gray-700 p-3 rounded text-black dark:text-white dark:bg-gray-800 h-24 mt-2" 
