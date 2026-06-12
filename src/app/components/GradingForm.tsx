@@ -21,9 +21,15 @@ export function GradingForm({ initialRubrics = [], initialGuides = [], allClasse
     score: number, 
     feedback: string,
     annotatedText?: string,
-    mistakesSummary?: any[]
+    transcription?: string,
+    stepMarking?: any[],
+    mistakesSummary?: any[],
+    weakTopics?: string[],
+    aiSuspicionScore?: number,
+    subjectDetected?: string,
   } | null>(null);
   const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
+  const [subjectMode, setSubjectMode] = useState('general');
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -41,10 +47,13 @@ export function GradingForm({ initialRubrics = [], initialGuides = [], allClasse
           score: response.score, 
           feedback: response.feedback!,
           annotatedText: response.annotatedText,
-          mistakesSummary: response.mistakesSummary
+          transcription: response.transcription,
+          stepMarking: response.stepMarking,
+          mistakesSummary: response.mistakesSummary,
+          weakTopics: response.weakTopics,
+          aiSuspicionScore: response.aiSuspicionScore,
+          subjectDetected: response.subjectDetected,
         });
-        
-        // Refresh the page router to trigger Server Components to refetch DB
         router.refresh(); 
       } else {
         alert("There was an error grading the assignment: " + response.error);
@@ -103,6 +112,30 @@ export function GradingForm({ initialRubrics = [], initialGuides = [], allClasse
               />
             </div>
           </div>
+        </div>
+
+        {/* Subject Mode Selector */}
+        <div className="p-3 rounded-lg border-2 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+          <label className="block text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1.5">
+            🧪 Subject Mode (CBSE/ICSE Optimizer)
+          </label>
+          <select
+            name="subjectMode"
+            value={subjectMode}
+            onChange={e => setSubjectMode(e.target.value)}
+            className="w-full border border-amber-300 dark:border-amber-700 p-2 rounded text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
+          >
+            <option value="general">📝 General (Essays, Language Arts)</option>
+            <option value="language">📖 Language Paper (Content 40% / Structure 30% / Grammar 30%)</option>
+            <option value="math">📐 Mathematics (Step Marking + Partial Credit)</option>
+            <option value="physics">⚛️ Physics (Formula + Step Marking + Rough Work ignored)</option>
+            <option value="chemistry">🧪 Chemistry (Chemical Formula + Equation Steps)</option>
+          </select>
+          {['math','physics','chemistry'].includes(subjectMode) && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-1.5 font-medium">
+              ✅ STEM mode: AI will transcribe handwriting first, then award partial credit per step. Crossed-out text & rough work ignored.
+            </p>
+          )}
         </div>
 
         {/* RAG Guide Selector */}
@@ -217,9 +250,76 @@ export function GradingForm({ initialRubrics = [], initialGuides = [], allClasse
 
       {result && (
         <div className="bg-green-50 dark:bg-green-900/20 p-6 border border-green-300 dark:border-green-800 rounded-lg shadow-sm space-y-4">
-          <h2 className="text-2xl font-bold text-green-800 dark:text-green-400">Score: {result.score}/100</h2>
+          {/* Score header + AI Integrity badge */}
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-2xl font-bold text-green-800 dark:text-green-400">Score: {result.score}/100</h2>
+              {result.subjectDetected && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">📚 Detected: {result.subjectDetected}</p>
+              )}
+            </div>
+            {/* AI Suspicion Badge */}
+            {result.aiSuspicionScore !== undefined && (
+              <div className={`px-3 py-1.5 rounded-full text-xs font-bold border ${
+                result.aiSuspicionScore >= 70
+                  ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400'
+                  : result.aiSuspicionScore >= 35
+                  ? 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400'
+                  : 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400'
+              }`}>
+                {result.aiSuspicionScore >= 70 ? '🔴 High AI Risk' 
+                  : result.aiSuspicionScore >= 35 ? '🟡 Review Recommended' 
+                  : '🟢 Likely Human Written'}
+                <span className="ml-1 font-normal opacity-75">({result.aiSuspicionScore}%)</span>
+              </div>
+            )}
+          </div>
+
           <p className="text-green-900 dark:text-green-300 leading-relaxed">{result.feedback}</p>
           
+          {/* Transcription panel - shown for STEM */}
+          {result.transcription && result.transcription.length > 20 && (
+            <div className="pt-4 border-t border-green-200 dark:border-green-800">
+              <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">🔍 AI Transcription (what Gemini read)</h3>
+              <div className="bg-gray-50 dark:bg-gray-800/70 p-3 rounded border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap">
+                {result.transcription}
+              </div>
+            </div>
+          )}
+
+          {/* Step Marking table - STEM only */}
+          {result.stepMarking && result.stepMarking.length > 0 && (
+            <div className="pt-4 border-t border-green-200 dark:border-green-800">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">📊 Step-by-Step Marking (CBSE Partial Credit)</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 dark:bg-gray-800">
+                      <th className="text-left p-2 border border-gray-200 dark:border-gray-700">Step</th>
+                      <th className="text-left p-2 border border-gray-200 dark:border-gray-700">Description</th>
+                      <th className="text-center p-2 border border-gray-200 dark:border-gray-700">Marks</th>
+                      <th className="text-left p-2 border border-gray-200 dark:border-gray-700">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.stepMarking.map((step: any, i: number) => (
+                      <tr key={i} className={step.isCorrect ? 'bg-green-50 dark:bg-green-900/10' : 'bg-red-50 dark:bg-red-900/10'}>
+                        <td className="p-2 border border-gray-200 dark:border-gray-700 font-bold text-center">{step.stepNumber}</td>
+                        <td className="p-2 border border-gray-200 dark:border-gray-700">{step.stepDescription}</td>
+                        <td className="p-2 border border-gray-200 dark:border-gray-700 text-center font-mono">
+                          <span className={step.marksAwarded === step.marksAvailable ? 'text-green-600 font-bold' : step.marksAwarded > 0 ? 'text-yellow-600 font-bold' : 'text-red-600 font-bold'}>
+                            {step.marksAwarded}/{step.marksAvailable}
+                          </span>
+                        </td>
+                        <td className="p-2 border border-gray-200 dark:border-gray-700 text-xs text-gray-500">{step.note}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {result.annotatedText && (
             <div className="pt-4 border-t border-green-200 dark:border-green-800">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Annotated Submission:</h3>

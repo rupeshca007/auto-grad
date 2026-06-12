@@ -16,6 +16,8 @@ export async function gradeSubmissionAction(formData: FormData) {
     const essayText = formData.get('essay') as string;
     const files = formData.getAll('files') as File[];
     const guideId = formData.get('guideId') as string | null;
+    const subjectMode = (formData.get('subjectMode') as string) || 'general';
+    // subjectMode: 'general' | 'math' | 'physics' | 'chemistry' | 'language'
 
     // --- RAG: Fetch teacher's evaluation guide if selected ---
     let ragContext = '';
@@ -40,13 +42,42 @@ Do NOT use your own knowledge to override the teacher's guide.
       }
     }
 
+    // ── Build the CBSE/ICSE STEM-Optimized System Prompt ────────────────────
+    const isSTEM = ['math', 'physics', 'chemistry'].includes(subjectMode);
+
+    const stemOcrRules = isSTEM ? `
+CRITICAL OCR & HANDWRITING RULES FOR STEM PAPERS:
+1. IGNORE STRIKETHROUGHS: If any text or numbers are crossed out by the student, completely ignore them as if they don't exist.
+2. MARGINS & ROUGH WORK: Ignore any work explicitly labelled "Rough Work", "R.W.", or written in the extreme left/right margins.
+3. FOLLOW ARROWS: Students use arrows (→, ↓) to show where an answer continues. Follow the visual flow of the answer, not just the top-to-bottom reading order.
+4. MATH/SCIENCE NOTATION: Accurately interpret handwritten symbols: integration signs (∫), summation (∑), square roots (√), Greek letters (θ, α, β, λ, μ), subscripts/superscripts (H₂O, E=mc²), and chemical formulas. Convert them to standard notation in your transcription.
+5. CHAIN-OF-THOUGHT — TRANSCRIBE FIRST, GRADE SECOND: You MUST first transcribe the entire handwritten answer step-by-step into clean text/LaTeX in the 'transcription' field BEFORE grading. Grading a messy handwritten paper without transcribing first leads to errors.
+` : '';
+
+    const stepMarkingRules = isSTEM ? `
+STEP-MARKING RULES (CBSE/ICSE PARTIAL CREDIT):
+1. For Math/Physics problems, award marks for EACH CORRECT STEP independently.
+2. If a student writes the correct formula but makes a calculation error, award marks for the formula step.
+3. If a student gets the wrong final answer due to a carry-forward error from a previous correct step, award full marks for subsequent steps that correctly follow their (wrong) intermediate value.
+4. In 'stepMarking', list every identifiable step, whether it earned marks or not.
+5. NEVER give 0 to a Math/Physics answer just because the final numerical answer is wrong.
+` : '';
+
+    const languageRules = subjectMode === 'language' ? `
+LANGUAGE PAPER GRADING RULES:
+1. Evaluate: Content/Ideas (40%), Organisation/Structure (30%), Language/Grammar (30%).
+2. Do NOT penalise for minor spelling errors if the meaning is clear.
+3. Award marks for creative expression and original ideas, even if grammar is imperfect.
+` : '';
+
+    const systemPrompt = `You are an expert Indian CBSE/ICSE board examiner grading handwritten student papers.
+Student: ${studentName} | Class: ${className} | Subject Mode: ${subjectMode}
+Rubric / Marking Scheme: ${rubric}
+${stemOcrRules}${stepMarkingRules}${languageRules}
+${ragContext || 'Use your expert knowledge as the source of truth for factual accuracy.'}`;
+
     let aiContent: any[] = [
-      { 
-        type: 'text', 
-        text: ragContext 
-          ? `${ragContext}\n\nNow apply the Rubric Rules below and grade accordingly:\nRubric: ${rubric}\nStudent: ${studentName}\n\nFACTUAL ACCURACY INSTRUCTION: Also check for factual errors compared to the answer key above.`
-          : `You are an expert K-12 teacher grading a student submission.\nStudent: ${studentName}\nRubric Rules: ${rubric}\n\nCRITICAL INSTRUCTION: You MUST evaluate the submission for BOTH the provided Rubric Rules AND factual accuracy. If the student makes factually incorrect statements (e.g. "cows produce orange juice"), you must mark them as mistakes, deduct points appropriately, and provide the factual correction, even if their spelling and grammar are perfect.`
-      }
+      { type: 'text', text: systemPrompt }
     ];
 
     let dbEssayText = essayText;
@@ -81,7 +112,59 @@ Do NOT use your own knowledge to override the teacher's guide.
       throw new Error("Please provide either text or a file submission.");
     }
 
-    // 1. Call Gemini and force a structured JSON response using messages for multimodal
+    // 1. Call Gemini with Chain-of-Thought schema (Transcribe → Grade)
+    const schema = z.object({
+      // ── Phase A: Chain-of-Thought Transcription ────────────────────────────
+      transcription: z.string().describe(
+        'STEM PAPERS: Full clean transcription of the handwritten answer into readable text. ' +
+        'Convert all math/science notation to standard text or LaTeX (e.g. x^2, sqrt(x), H_2O). ' +
+        'IGNORE all crossed-out text and rough work in margins. ' +
+        'For non-STEM/general papers, write a brief summary of what the student wrote.'
+      ),
+
+      // ── Phase B: Step Marking (STEM only, empty array for other subjects) ──
+      stepMarking: z.array(z.object({
+        stepNumber: z.number(),
+        stepDescription: z.string().describe('What this step was (e.g. "Applied Newton 2nd Law: F=ma")'),
+        marksAwarded: z.number().describe('Marks given for this step'),
+        marksAvailable: z.number().describe('Max marks available for this step'),
+        isCorrect: z.boolean(),
+        note: z.string().describe('Why partial/full/no marks were given')
+      })).describe(
+        'STEM ONLY: List every identifiable step in the solution and the marks each step earned. ' +
+        'For non-STEM papers, return an empty array []'
+      ),
+
+      // ── Phase C: Final Grade ───────────────────────────────────────────────
+      score: z.number().describe('Final score out of 100 based strictly on the rubric. For STEM, sum from stepMarking.'),
+      feedback: z.string().describe('One encouraging paragraph of constructive feedback mentioning specific steps that were right/wrong.'),
+      annotatedText: z.string().describe(
+        'Use the TRANSCRIPTION (not the raw handwriting) as the base. ' +
+        'Wrap incorrect parts in <span class="text-red-600 font-semibold">wrong</span> ' +
+        'followed by <span class="text-green-600 font-semibold">(correct)</span>. ' +
+        'For STEM, annotate step-by-step. Use <br/><br/> for breaks between steps/questions.'
+      ),
+      mistakesSummary: z.array(z.object({
+        mistake: z.string(),
+        correction: z.string(),
+        reason: z.string()
+      })).describe('List of specific mistakes with corrections and reason for mark deduction.'),
+      weakTopics: z.array(z.string()).describe(
+        'List 1-3 specific academic concepts the student clearly does not understand. ' +
+        'Be specific (e.g. "Conservation of Momentum", "Ionic Bonding"). ' +
+        'Return empty array [] if no major gaps found.'
+      ),
+
+      // ── Phase D: Academic Integrity ────────────────────────────────────────
+      aiSuspicionScore: z.number().min(0).max(100).describe(
+        'Score 0-100 for likelihood that this answer was AI-generated or copied. ' +
+        '0 = definitely handwritten/human. 100 = definitely AI-generated text. ' +
+        'For image/PDF uploads of handwritten papers, always return 0. ' +
+        'For typed text: check for uniform sentence length, lack of personal voice, and overly formal language.'
+      ),
+      subjectDetected: z.string().describe('The subject/topic you detected from the submission (e.g. "Physics - Kinematics", "Chemistry - Periodic Table", "English Essay")')
+    });
+
     // Retry gemini-2.5-flash up to 3 times with delay (only model that works with this API key)
     const MAX_RETRIES = 3;
     let object: any = null;
@@ -124,8 +207,12 @@ Do NOT use your own knowledge to override the teacher's guide.
       score: object.score,
       feedback: object.feedback,
       annotatedText: object.annotatedText,
+      transcription: object.transcription,
+      stepMarking: object.stepMarking || [],
       mistakesSummary: object.mistakesSummary,
       weakTopics: object.weakTopics || [],
+      aiSuspicionScore: object.aiSuspicionScore ?? 0,
+      subjectDetected: object.subjectDetected || subjectMode,
     });
 
     // 3. Computed Pattern: Update the Student's running average
@@ -162,8 +249,12 @@ Do NOT use your own knowledge to override the teacher's guide.
       score: object.score, 
       feedback: object.feedback,
       annotatedText: object.annotatedText,
+      transcription: object.transcription,
+      stepMarking: object.stepMarking,
       mistakesSummary: object.mistakesSummary,
-      weakTopics: object.weakTopics
+      weakTopics: object.weakTopics,
+      aiSuspicionScore: object.aiSuspicionScore,
+      subjectDetected: object.subjectDetected,
     };
     
   } catch (error) {
