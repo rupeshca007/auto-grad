@@ -7,6 +7,9 @@ import { connectToDatabase } from '../lib/mongodb';
 import { Submission } from '../models/Submission';
 import { Student } from '../models/Student';
 import { getGuideByIdAction } from './evaluationGuide';
+import { DocumentChunk } from '../models/DocumentChunk';
+import { cosineSimilarity } from '../lib/vectorUtils';
+import { embed } from 'ai';
 
 export async function gradeSubmissionAction(formData: FormData) {
   try {
@@ -19,12 +22,59 @@ export async function gradeSubmissionAction(formData: FormData) {
     const subjectMode = (formData.get('subjectMode') as string) || 'general';
     // subjectMode: 'general' | 'math' | 'physics' | 'chemistry' | 'language'
 
+    await connectToDatabase();
+
     // --- RAG: Fetch teacher's evaluation guide if selected ---
     let ragContext = '';
     if (guideId) {
       const guide = await getGuideByIdAction(guideId);
       if (guide) {
-        ragContext = `
+        // HIERARCHICAL RAG RETRIEVAL
+        const chunks = await DocumentChunk.find({ guideId }).lean() as any[];
+        
+        if (chunks && chunks.length > 0) {
+          console.log(`[RAG] Found ${chunks.length} chunks. Performing Semantic Search...`);
+          // It's a large document with chunks. We do Semantic Search.
+          const queryForEmbedding = `Question/Rubric: ${rubric}\nStudent Answer: ${essayText}`;
+          const { embedding: queryEmbedding } = await embed({
+            model: google.textEmbeddingModel('text-embedding-004'),
+            value: queryForEmbedding,
+          });
+
+          // Calculate Cosine Similarity
+          const scoredChunks = chunks.map(chunk => ({
+            parentText: chunk.parentText,
+            score: cosineSimilarity(queryEmbedding, chunk.embedding),
+          }));
+
+          // Sort by highest score
+          scoredChunks.sort((a, b) => b.score - a.score);
+
+          // Get top K unique parent chunks (Hierarchical step)
+          const topK = 3;
+          const uniqueParents = new Set<string>();
+          for (const sc of scoredChunks) {
+            uniqueParents.add(sc.parentText);
+            if (uniqueParents.size >= topK) break;
+          }
+
+          ragContext = `
+========================================================
+TEACHER'S OFFICIAL SYLLABUS / KNOWLEDGE BASE (Retrieved Context)
+Subject: ${guide.subject} | Document: ${guide.name}
+========================================================
+${Array.from(uniqueParents).join('\n\n--- NEXT EXCERPT ---\n\n')}
+========================================================
+CRITICAL RAG INSTRUCTION: The above excerpts were retrieved from the teacher's official textbook/syllabus.
+You MUST grade the student's submission STRICTLY against this knowledge.
+If it matches the text above — it is CORRECT.
+If it contradicts the text — it is WRONG.
+Do NOT use your own knowledge to override the teacher's guide.
+========================================================
+`;
+        } else {
+          // Fallback to legacy full-text inclusion for small guides
+          ragContext = `
 ========================================================
 TEACHER'S OFFICIAL ANSWER KEY / EVALUATION GUIDE
 Subject: ${guide.subject} | Guide: ${guide.name}
@@ -39,6 +89,7 @@ If it contradicts the key — it is WRONG, regardless of general knowledge.
 Do NOT use your own knowledge to override the teacher's guide.
 ========================================================
 `;
+        }
       }
     }
 

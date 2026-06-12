@@ -33,23 +33,21 @@ export function GuideManager({ initialGuides }: { initialGuides: Guide[] }) {
 
     startSaving(async () => {
       try {
-        let finalContent = content;
-
-        // If a file was uploaded, read it as text or note it
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('subject', subject);
+        formData.append('content', content);
         if (guideFile) {
-          if (guideFile.type === 'text/plain') {
-            finalContent = await guideFile.text();
-          } else {
-            // For PDF/images we note the filename; actual reading happens in grade.ts via Gemini
-            finalContent = content
-              ? `[Attached File: ${guideFile.name}]\n\n${content}`
-              : `[Attached File: ${guideFile.name}]`;
-          }
+          formData.append('file', guideFile);
         }
 
-        await saveGuideAction(name, subject, finalContent);
+        await saveGuideAction(formData);
+        
+        // Optimistic UI update (using a placeholder content since actual parsing is on server)
+        const finalContent = content || `[File Uploaded: ${guideFile?.name}]`;
         const newGuide: Guide = { _id: Date.now().toString(), name, subject, content: finalContent };
         setGuides([newGuide, ...guides]);
+        
         setName(''); setSubject(''); setContent(''); setGuideFile(null);
         setShowForm(false);
         router.refresh();
