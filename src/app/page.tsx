@@ -103,7 +103,7 @@ export default async function GraderDashboard({
         </p>
         <WorksheetGenerator
           students={analytics.students.map((s: any) => ({
-            name: s.studentName,
+            name: s.name,
             className: s.className || selectedClass || 'General',
             averageScore: s.averageScore,
           }))}
